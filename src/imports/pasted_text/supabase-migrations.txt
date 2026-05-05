@@ -1,0 +1,270 @@
+Supabase is now connected. Build the complete TaskFlow app end-to-end. 
+Do everything below in order without stopping.
+
+---
+
+STEP 1 — DATABASE SETUP
+Run these SQL migrations in Supabase:
+
+Create profiles table:
+CREATE TABLE profiles (
+  id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
+  full_name TEXT NOT NULL,
+  email TEXT NOT NULL,
+  avatar_url TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+Create projects table:
+CREATE TABLE projects (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  owner_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
+  status TEXT DEFAULT 'active' CHECK (status IN ('active','archived','completed')),
+  color TEXT DEFAULT '#6366f1',
+  due_date DATE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+Create project_members table:
+CREATE TABLE project_members (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  project_id UUID REFERENCES projects(id) ON DELETE CASCADE NOT NULL,
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
+  role TEXT DEFAULT 'member' CHECK (role IN ('admin','member')),
+  joined_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(project_id, user_id)
+);
+
+Create tasks table:
+CREATE TABLE tasks (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  project_id UUID REFERENCES projects(id) ON DELETE CASCADE NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT,
+  assignee_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  created_by UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
+  status TEXT DEFAULT 'todo' CHECK (status IN ('todo','in_progress','in_review','done')),
+  priority TEXT DEFAULT 'medium' CHECK (priority IN ('low','medium','high','urgent')),
+  due_date DATE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+Auto-update updated_at on tasks:
+CREATE OR REPLACE FUNCTION update_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN NEW.updated_at = NOW(); RETURN NEW; END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER tasks_updated_at BEFORE UPDATE ON tasks
+FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+Auto-create profile on signup:
+CREATE OR REPLACE FUNCTION handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO profiles (id, full_name, email)
+  VALUES (
+    NEW.id,
+    COALESCE(NEW.raw_user_meta_data->>'full_name', 'User'),
+    NEW.email
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+CREATE TRIGGER on_auth_user_created
+AFTER INSERT ON auth.users
+FOR EACH ROW EXECUTE FUNCTION handle_new_user();
+
+---
+
+STEP 2 — ROW LEVEL SECURITY
+
+Enable RLS on all tables:
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
+ALTER TABLE project_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tasks ENABLE ROW LEVEL SECURITY;
+
+Profiles policies:
+CREATE POLICY "profiles_select" ON profiles FOR SELECT TO authenticated USING (true);
+CREATE POLICY "profiles_update" ON profiles FOR UPDATE TO authenticated USING (auth.uid() = id);
+
+Projects policies:
+CREATE POLICY "projects_select" ON projects FOR SELECT TO authenticated
+USING (id IN (SELECT project_id FROM project_members WHERE user_id = auth.uid()));
+
+CREATE POLICY "projects_insert" ON projects FOR INSERT TO authenticated
+WITH CHECK (owner_id = auth.uid());
+
+CREATE POLICY "projects_update" ON projects FOR UPDATE TO authenticated
+USING (id IN (SELECT project_id FROM project_members WHERE user_id = auth.uid() AND role = 'admin'));
+
+CREATE POLICY "projects_delete" ON projects FOR DELETE TO authenticated
+USING (owner_id = auth.uid());
+
+Project members policies:
+CREATE POLICY "members_select" ON project_members FOR SELECT TO authenticated
+USING (project_id IN (SELECT project_id FROM project_members WHERE user_id = auth.uid()));
+
+CREATE POLICY "members_insert" ON project_members FOR INSERT TO authenticated
+WITH CHECK (project_id IN (SELECT project_id FROM project_members WHERE user_id = auth.uid() AND role = 'admin') OR user_id = auth.uid());
+
+CREATE POLICY "members_update" ON project_members FOR UPDATE TO authenticated
+USING (project_id IN (SELECT project_id FROM project_members WHERE user_id = auth.uid() AND role = 'admin'));
+
+CREATE POLICY "members_delete" ON project_members FOR DELETE TO authenticated
+USING (project_id IN (SELECT project_id FROM project_members WHERE user_id = auth.uid() AND role = 'admin'));
+
+Tasks policies:
+CREATE POLICY "tasks_select" ON tasks FOR SELECT TO authenticated
+USING (project_id IN (SELECT project_id FROM project_members WHERE user_id = auth.uid()));
+
+CREATE POLICY "tasks_insert" ON tasks FOR INSERT TO authenticated
+WITH CHECK (project_id IN (SELECT project_id FROM project_members WHERE user_id = auth.uid()) AND created_by = auth.uid());
+
+CREATE POLICY "tasks_update" ON tasks FOR UPDATE TO authenticated
+USING (project_id IN (SELECT project_id FROM project_members WHERE user_id = auth.uid()));
+
+CREATE POLICY "tasks_delete" ON tasks FOR DELETE TO authenticated
+USING (created_by = auth.uid() OR project_id IN (SELECT project_id FROM project_members WHERE user_id = auth.uid() AND role = 'admin'));
+
+---
+
+STEP 3 — SUPABASE CLIENT SETUP
+
+Create a single supabase.ts client file using the connected project URL and anon key. Export a typed supabase client. Create TypeScript types matching all 4 tables.
+
+---
+
+STEP 4 — AUTHENTICATION
+
+Build /login and /signup pages:
+- Dark gradient background with subtle grid pattern
+- Centered card with "TaskFlow ⚡" heading
+- Signup: full_name, email, password, confirm_password fields
+- Login: email, password fields
+- Toggle link between login and signup
+- Show/hide password toggle button
+- On signup: call supabase.auth.signUp with full_name in metadata — the trigger will auto-create the profile
+- On login: call supabase.auth.signInWithPassword
+- On success: redirect to /dashboard
+- Show error toasts on failure
+- useAuth hook: expose user, session, loading, signOut
+- AuthProvider wrapping the whole app
+- ProtectedRoute component: if no session redirect to /login
+
+---
+
+STEP 5 — LAYOUT & SIDEBAR
+
+Build persistent sidebar layout for all protected pages:
+- "TaskFlow ⚡" logo top-left
+- Nav links: Dashboard (/dashboard), Projects (/projects), My Tasks (/my-tasks)
+- Active link: indigo background highlight
+- Bottom: user avatar (initials fallback), full_name, email, logout button
+- Mobile: hidden sidebar with hamburger toggle overlay
+- All protected pages wrapped in this layout
+
+---
+
+STEP 6 — DASHBOARD PAGE (/dashboard)
+
+Fetch real data from Supabase:
+- Stat cards (animated count-up): 
+  * Total Projects = count of project_members rows for current user
+  * Due Today = tasks where due_date = today AND status != 'done' in user's projects
+  * Overdue = tasks where due_date < today AND status != 'done'
+  * Done This Week = tasks where status = 'done' AND updated_at >= 7 days ago
+- My Tasks section: tasks where assignee_id = current user, grouped by status, overdue ones highlighted rose
+- Recent Projects: last 4 projects the user is a member of, show progress bar (done tasks / total tasks), member count
+- Loading skeletons while fetching
+
+---
+
+STEP 7 — PROJECTS PAGE (/projects)
+
+- Fetch all projects user is a member of (join project_members)
+- Grid/List view toggle
+- Search by name, filter by status
+- "New Project" button → modal with: name, description, color picker (6 preset colors), due date, submit creates project then auto-inserts creator as admin in project_members
+- Project cards: colored top border, name, description, stacked member avatar initials, progress bar, status badge, due date, 3-dot menu (admin only: Edit, Archive, Delete)
+- Delete: confirmation dialog, then delete from DB
+- Empty state if no projects
+
+---
+
+STEP 8 — PROJECT DETAIL PAGE (/projects/:id)
+
+Fetch project + check current user's role in project_members.
+
+TAB 1 — Kanban Board:
+- Fetch tasks for this project
+- 4 columns: Todo / In Progress / In Review / Done
+- Use @dnd-kit/core for drag-and-drop between columns
+- On drop: update task status in Supabase immediately (optimistic update)
+- Task cards: title, priority badge, assignee initials, due date
+- Overdue card: pulsing rose border animation
+- "Add Task" at bottom of each column → inline modal: title (required), description, assignee (dropdown of project members), priority, due date → insert into tasks table with created_by = current user
+
+TAB 2 — List View:
+- Table of all tasks with sortable columns
+- Inline status dropdown that updates Supabase on change
+- Checkbox bulk select → bulk status update button
+
+TAB 3 — Members:
+- Fetch project_members joined with profiles
+- Show each member: avatar initials, name, email, role badge
+- "You" badge on current user row
+- Admin only: "Invite Member" button → input email → look up profiles by email → insert into project_members if found, else show error "No user with that email"
+- Admin only: role dropdown to change member role (update project_members)
+- Admin only: remove member button with confirmation (delete from project_members, cannot remove self)
+
+TAB 4 — Settings (only render if current user role = 'admin'):
+- Form to edit project name, description, color, due date, status
+- Save button → update projects table
+- Danger Zone section:
+  * "Archive Project" → sets status = 'archived'
+  * "Delete Project" → confirmation dialog → deletes project (cascades to tasks and members)
+
+---
+
+STEP 9 — TASK DETAIL SLIDE-OVER
+
+When any task card/row is clicked, open a right-side slide-over panel (not navigation):
+- Click title to edit inline → save on blur (update tasks)
+- Status dropdown → update on change
+- Priority dropdown → update on change  
+- Assignee dropdown (project members) → update on change
+- Due date input → update on change
+- Description textarea → save button
+- "Created by [name] on [date]" footer
+- Delete button: only visible if current user is creator OR has admin role → confirmation → delete from tasks
+
+---
+
+STEP 10 — MY TASKS PAGE (/my-tasks)
+
+- Fetch all tasks where assignee_id = current user across all projects
+- Join with projects table to show project name per task
+- Filter buttons: All / Todo / In Progress / In Review / Done
+- Sort by: Due Date (default), Priority, Project
+- Task rows: project name badge, task title, priority badge, status badge, due date (red if overdue)
+- Click task → same slide-over panel as Step 9
+- Empty state if no assigned tasks
+
+---
+
+STEP 11 — GLOBAL REQUIREMENTS
+
+- All data mutations (create/update/delete) must show success or error toast
+- All forms must validate before submitting: required fields, min/max lengths, due date not in past
+- Every page must have a loading skeleton state
+- All Supabase errors must be caught and shown as error toasts
+- No hardcoded/mock data anywhere — everything reads from and writes to Supabase
+- TypeScript types used throughout, no 'any' types
+- After any mutation refetch the relevant data to keep UI in sync
+
+Build everything above completely. Do not leave any placeholder components, 
+mock data, or TODO comments. The app must be fully working end-to-end.
