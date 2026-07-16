@@ -24,6 +24,7 @@ import {
 } from '../../lib/utils';
 import Avatar from './ui/Avatar';
 import Badge from './ui/Badge';
+import { motion, AnimatePresence } from 'motion/react';
 
 const COLUMNS = [
   { id: 'todo',        label: 'To Do',       color: 'bg-slate-500' },
@@ -31,6 +32,8 @@ const COLUMNS = [
   { id: 'in_review',   label: 'In Review',    color: 'bg-violet-500' },
   { id: 'done',        label: 'Done',         color: 'bg-emerald-500' },
 ];
+
+const DELETE_ZONE_ID = 'delete-zone';
 
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
@@ -97,6 +100,24 @@ export default function ProjectDetail() {
     if (!over) return;
 
     const taskId = active.id as string;
+
+    // ── Delete zone: remove the task ─────────────────────────
+    if (over.id === DELETE_ZONE_ID) {
+      const task = tasks.find((t) => t.id === taskId);
+      if (!task) return;
+      // Optimistic remove
+      setTasks((prev) => prev.filter((t) => t.id !== taskId));
+      try {
+        await deleteTask('', taskId);
+        toast.success(`"${task.title}" deleted`);
+      } catch (err: any) {
+        toast.error(err.message || 'Failed to delete task');
+        loadTasks();
+      }
+      return;
+    }
+
+    // ── Normal column move ────────────────────────────────────
     const newStatus = over.id as string;
     const task = tasks.find((t) => t.id === taskId);
     if (!task || task.status === newStatus || !COLUMNS.find((c) => c.id === newStatus)) return;
@@ -248,6 +269,9 @@ export default function ProjectDetail() {
                 </div>
               )}
             </DragOverlay>
+
+            {/* Floating delete zone — appears while dragging */}
+            <DeleteZone isVisible={!!activeCardId} />
           </DndContext>
         )}
 
@@ -444,6 +468,73 @@ function TaskCardUI({
         )}
       </div>
     </div>
+  );
+}
+
+// ─── Delete Zone ──────────────────────────────────────────────────────────────
+
+function DeleteZone({ isVisible }: { isVisible: boolean }) {
+  const { setNodeRef, isOver } = useDroppable({ id: DELETE_ZONE_ID });
+
+  return (
+    <AnimatePresence>
+      {isVisible && (
+        <motion.div
+          ref={setNodeRef}
+          initial={{ y: 120, opacity: 0, scale: 0.7 }}
+          animate={{
+            y: 0,
+            opacity: 1,
+            scale: isOver ? 1.18 : 1,
+          }}
+          exit={{ y: 120, opacity: 0, scale: 0.7 }}
+          transition={{ type: 'spring', stiffness: 340, damping: 28 }}
+          className={`fixed bottom-8 right-8 z-50 flex flex-col items-center justify-center gap-2
+            w-28 h-28 rounded-2xl border-2 backdrop-blur-md select-none transition-colors
+            ${
+              isOver
+                ? 'bg-rose-500/25 border-rose-400/80 shadow-[0_0_40px_8px_rgba(244,63,94,0.35)]'
+                : 'bg-slate-800/80 border-slate-600/50 shadow-xl'
+            }`}
+        >
+          {/* Trash icon — wiggles when hovered */}
+          <motion.div
+            animate={
+              isOver
+                ? { rotate: [0, -14, 14, -10, 10, 0], scale: [1, 1.25, 1.25, 1.2, 1.2, 1.1] }
+                : { rotate: 0, scale: 1 }
+            }
+            transition={{ duration: 0.5, ease: 'easeInOut' }}
+          >
+            <Trash2
+              className={`w-9 h-9 transition-colors ${
+                isOver ? 'text-rose-400' : 'text-slate-400'
+              }`}
+            />
+          </motion.div>
+
+          {/* Label */}
+          <motion.span
+            animate={{ opacity: 1 }}
+            className={`text-[11px] font-semibold text-center leading-tight transition-colors ${
+              isOver ? 'text-rose-300' : 'text-slate-400'
+            }`}
+          >
+            {isOver ? 'Release to\ndelete' : 'Drop to\ndelete'}
+          </motion.span>
+
+          {/* Pulsing ring when hovered */}
+          {isOver && (
+            <motion.div
+              className="absolute inset-0 rounded-2xl border-2 border-rose-400/60"
+              initial={{ scale: 1, opacity: 0.8 }}
+              animate={{ scale: 1.18, opacity: 0 }}
+              transition={{ duration: 0.7, repeat: Infinity, ease: 'easeOut' }}
+            />
+          )}
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
