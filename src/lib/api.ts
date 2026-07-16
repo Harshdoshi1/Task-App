@@ -10,6 +10,26 @@ import { supabase } from './supabase';
 // ─────────────────────────────────────────────
 
 export async function getProjects(_token?: string) {
+  // Authorization: Only return projects the current user is a member of.
+  // This is enforced both here (frontend) and via RLS policies in Supabase.
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
+  // Step 1: Get all project IDs the user belongs to
+  const { data: memberRows, error: memberError } = await supabase
+    .from('project_members')
+    .select('project_id')
+    .eq('user_id', user.id);
+
+  if (memberError) throw new Error(memberError.message);
+
+  const projectIds = (memberRows ?? []).map((r: any) => r.project_id);
+
+  if (projectIds.length === 0) {
+    return { data: [] };
+  }
+
+  // Step 2: Fetch only those projects
   const { data, error } = await supabase
     .from('projects')
     .select(`
@@ -21,6 +41,7 @@ export async function getProjects(_token?: string) {
         user:profiles(id, full_name, email, avatar_url)
       )
     `)
+    .in('id', projectIds)
     .order('created_at', { ascending: false });
 
   if (error) throw new Error(error.message);
@@ -28,6 +49,20 @@ export async function getProjects(_token?: string) {
 }
 
 export async function getProject(_token: string, id: string) {
+  // Authorization: Verify the current user is a member of this project.
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
+  const { data: membership, error: memberError } = await supabase
+    .from('project_members')
+    .select('id')
+    .eq('project_id', id)
+    .eq('user_id', user.id)
+    .maybeSingle();
+
+  if (memberError) throw new Error(memberError.message);
+  if (!membership) throw new Error('Access denied: You are not a member of this project.');
+
   const { data, error } = await supabase
     .from('projects')
     .select(`
