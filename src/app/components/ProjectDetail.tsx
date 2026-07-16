@@ -449,6 +449,22 @@ function TaskCardUI({
 
 // ─── List View ────────────────────────────────────────────────────────────────
 
+// Status row background tints for list view
+const STATUS_ROW_BG: Record<string, string> = {
+  todo:        'bg-slate-500/10',
+  in_progress: 'bg-blue-500/10',
+  in_review:   'bg-yellow-400/10',
+  done:        'bg-emerald-500/10',
+};
+
+// Status select pill colors
+const STATUS_SELECT_STYLE: Record<string, string> = {
+  todo:        'bg-slate-600/60   border-slate-500/60   text-slate-200',
+  in_progress: 'bg-blue-600/30   border-blue-500/60    text-blue-200',
+  in_review:   'bg-yellow-500/20  border-yellow-400/60  text-yellow-200',
+  done:        'bg-emerald-600/25 border-emerald-500/60 text-emerald-200',
+};
+
 function ListView({ tasks, loading, onTaskClick, onStatusChange }: any) {
   return (
     <div className="p-6 lg:p-8">
@@ -473,50 +489,58 @@ function ListView({ tasks, loading, onTaskClick, onStatusChange }: any) {
                 <th className="text-left px-6 py-3 text-xs font-medium text-slate-400 uppercase tracking-wider">Due</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-700/40">
-              {tasks.map((task: any) => (
-                <tr key={task.id} className="hover:bg-slate-700/20 transition-all">
-                  <td className="px-6 py-3.5">
-                    <button onClick={() => onTaskClick(task)} className="text-left group">
-                      <p className={`font-medium group-hover:text-indigo-400 transition-colors ${isOverdue(task.due_date, task.status) ? 'text-rose-400' : 'text-white'}`}>
-                        {task.title}
-                      </p>
-                      {task.description && (
-                        <p className="text-xs text-slate-500 line-clamp-1 mt-0.5">{task.description}</p>
+            <tbody className="divide-y divide-slate-700/30">
+              {tasks.map((task: any) => {
+                const rowBg = STATUS_ROW_BG[task.status] ?? '';
+                const selectStyle = STATUS_SELECT_STYLE[task.status] ?? 'bg-slate-700 border-slate-600 text-slate-200';
+                return (
+                  <tr
+                    key={task.id}
+                    className={`transition-all ${rowBg} hover:brightness-110`}
+                  >
+                    <td className="px-6 py-3.5">
+                      <button onClick={() => onTaskClick(task)} className="text-left group">
+                        <p className={`font-medium group-hover:text-indigo-400 transition-colors ${isOverdue(task.due_date, task.status) ? 'text-rose-400' : 'text-white'}`}>
+                          {task.title}
+                        </p>
+                        {task.description && (
+                          <p className="text-xs text-slate-500 line-clamp-1 mt-0.5">{task.description}</p>
+                        )}
+                      </button>
+                    </td>
+                    <td className="px-6 py-3.5">
+                      {task.assignee ? (
+                        <div className="flex items-center gap-2">
+                          <Avatar name={task.assignee.full_name} avatarUrl={task.assignee.avatar_url} size="sm" />
+                          <span className="text-sm text-slate-300 hidden sm:block">{task.assignee.full_name}</span>
+                        </div>
+                      ) : (
+                        <span className="text-slate-600 text-sm">—</span>
                       )}
-                    </button>
-                  </td>
-                  <td className="px-6 py-3.5">
-                    {task.assignee ? (
-                      <div className="flex items-center gap-2">
-                        <Avatar name={task.assignee.full_name} avatarUrl={task.assignee.avatar_url} size="sm" />
-                        <span className="text-sm text-slate-300 hidden sm:block">{task.assignee.full_name}</span>
-                      </div>
-                    ) : (
-                      <span className="text-slate-600 text-sm">—</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-3.5">
-                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${priorityColors[task.priority as keyof typeof priorityColors] ?? 'bg-slate-500'} text-white`}>
-                      {priorityLabels[task.priority as keyof typeof priorityLabels] ?? task.priority}
-                    </span>
-                  </td>
-                  <td className="px-6 py-3.5">
-                    <select
-                      value={task.status}
-                      onChange={(e) => onStatusChange(task.id, e.target.value)}
-                      className="px-2 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    >
-                      {Object.entries(statusLabels).map(([v, l]) => (
-                        <option key={v} value={v}>{l}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="px-6 py-3.5 text-sm text-slate-400">
-                    {task.due_date ? formatDate(task.due_date) : '—'}
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-6 py-3.5">
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${priorityColors[task.priority as keyof typeof priorityColors] ?? 'bg-slate-500'} text-white`}>
+                        {priorityLabels[task.priority as keyof typeof priorityLabels] ?? task.priority}
+                      </span>
+                    </td>
+                    <td className="px-6 py-3.5">
+                      <select
+                        value={task.status}
+                        onChange={(e) => onStatusChange(task.id, e.target.value)}
+                        className={`px-2.5 py-1.5 border rounded-full text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer transition-all appearance-none pr-6 ${selectStyle}`}
+                        style={{ backgroundImage: 'none' }}
+                      >
+                        {Object.entries(statusLabels).map(([v, l]) => (
+                          <option key={v} value={v} className="bg-slate-900 text-white">{l}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-6 py-3.5 text-sm text-slate-400">
+                      {task.due_date ? formatDate(task.due_date) : '—'}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
